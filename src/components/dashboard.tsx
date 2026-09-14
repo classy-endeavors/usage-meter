@@ -2,6 +2,7 @@
 
 import { DateFilter, type RangePreset } from "@/components/date-filter";
 import { InstallPrompt } from "@/components/install-prompt";
+import { Loader, Spinner } from "@/components/loader";
 import { SiteFooter, SiteHeader } from "@/components/site-chrome";
 import { ThreadAccordion } from "@/components/thread-accordion";
 import type { ProjectStat, ThreadGroup, ThreadStat, UserStat } from "@/lib/types";
@@ -59,6 +60,7 @@ export function Dashboard() {
   const [tab, setTab] = useState<Tab>("projects");
   const [stats, setStats] = useState<Stats | null>(null);
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
   const [projectName, setProjectName] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [detailThreads, setDetailThreads] = useState<ThreadGroup[]>([]);
@@ -71,17 +73,24 @@ export function Dashboard() {
 
   const load = useCallback(async () => {
     setError("");
-    const response = await fetch(`/api/stats?${query}`, { credentials: "include" });
-    if (response.status === 401) {
-      window.location.href = "/unlock";
-      return;
+    setLoading(true);
+    try {
+      const response = await fetch(`/api/stats?${query}`, { credentials: "include" });
+      if (response.status === 401) {
+        window.location.href = "/unlock";
+        return;
+      }
+      const data = await response.json();
+      if (!response.ok) {
+        setError(data.error || "Could not load usage");
+        return;
+      }
+      setStats(data);
+    } catch {
+      setError("Could not load usage");
+    } finally {
+      setLoading(false);
     }
-    const data = await response.json();
-    if (!response.ok) {
-      setError(data.error || "Could not load usage");
-      return;
-    }
-    setStats(data);
   }, [query]);
 
   useEffect(() => {
@@ -93,13 +102,16 @@ export function Dashboard() {
     setUserEmail(null);
     setTab("projects");
     setLoadingDetail(true);
-    const response = await fetch(
-      `/api/projects?name=${encodeURIComponent(name)}&${query}`,
-      { credentials: "include" },
-    );
-    const data = await response.json();
-    setDetailThreads(data.threads || []);
-    setLoadingDetail(false);
+    try {
+      const response = await fetch(
+        `/api/projects?name=${encodeURIComponent(name)}&${query}`,
+        { credentials: "include" },
+      );
+      const data = await response.json();
+      setDetailThreads(data.threads || []);
+    } finally {
+      setLoadingDetail(false);
+    }
   }
 
   async function openUser(email: string) {
@@ -107,13 +119,16 @@ export function Dashboard() {
     setProjectName(null);
     setTab("users");
     setLoadingDetail(true);
-    const response = await fetch(
-      `/api/users?email=${encodeURIComponent(email)}&${query}`,
-      { credentials: "include" },
-    );
-    const data = await response.json();
-    setDetailThreads(data.threads || []);
-    setLoadingDetail(false);
+    try {
+      const response = await fetch(
+        `/api/users?email=${encodeURIComponent(email)}&${query}`,
+        { credentials: "include" },
+      );
+      const data = await response.json();
+      setDetailThreads(data.threads || []);
+    } finally {
+      setLoadingDetail(false);
+    }
   }
 
   useEffect(() => {
@@ -143,9 +158,11 @@ export function Dashboard() {
           <button
             type="button"
             onClick={() => void load()}
-            className="rounded-full px-4 py-2 text-sm font-medium hover:text-teal-600"
+            disabled={loading}
+            className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium hover:text-teal-600 disabled:opacity-60"
           >
-            Refresh
+            {loading ? <Spinner /> : null}
+            {loading ? (stats ? "Refreshing" : "Loading") : "Refresh"}
           </button>
         }
       />
@@ -167,13 +184,26 @@ export function Dashboard() {
             </p>
           </div>
           <section className="grid w-full gap-4 sm:grid-cols-4 lg:max-w-4xl">
-            <StatCard label="Projects" value={String(stats?.totals.projects ?? 0)} />
-            <StatCard label="Threads" value={String(stats?.totals.threads ?? 0)} />
-            <StatCard label="Users" value={String(stats?.totals.users ?? 0)} />
+            <StatCard
+              label="Projects"
+              value={String(stats?.totals.projects ?? 0)}
+              loading={loading && !stats}
+            />
+            <StatCard
+              label="Threads"
+              value={String(stats?.totals.threads ?? 0)}
+              loading={loading && !stats}
+            />
+            <StatCard
+              label="Users"
+              value={String(stats?.totals.users ?? 0)}
+              loading={loading && !stats}
+            />
             <StatCard
               label="Total tokens"
               value={formatCompact(stats?.totals.total_tokens ?? 0)}
               title={formatTokens(stats?.totals.total_tokens ?? 0)}
+              loading={loading && !stats}
             />
           </section>
         </div>
@@ -229,6 +259,7 @@ export function Dashboard() {
             <UsageTable
               caption="Highest thread consumption"
               empty="No threads yet."
+              loading={loading}
               headers={["Thread", "Project", "User", "Turns", "Tokens"]}
               rows={(stats?.threads || []).map((thread) => [
                 shortId(thread.thread_id),
@@ -244,6 +275,7 @@ export function Dashboard() {
             <UsageTable
               caption="Highest project consumption"
               empty="No projects yet. Install the hook from Setup."
+              loading={loading}
               headers={["Project", "Git repo", "Turns", "Tokens"]}
               onRowClick={(index) => {
                 const project = stats?.projects[index];
@@ -272,6 +304,7 @@ export function Dashboard() {
             <UsageTable
               caption="Highest user consumption by git email"
               empty="No users yet."
+              loading={loading}
               headers={["Git email", "Name", "Projects", "Turns", "Tokens"]}
               onRowClick={(index) => {
                 const user = stats?.users[index];
@@ -310,24 +343,30 @@ function StatCard({
   label,
   value,
   title,
+  loading,
 }: {
   label: string;
   value: string;
   title?: string;
+  loading?: boolean;
 }) {
   return (
     <div className="rounded-2xl border border-black/10 bg-white px-5 py-6 shadow-sm">
       <p className="text-xs tracking-wide text-neutral-500 uppercase">{label}</p>
-      <p
-        className={`mt-2 text-3xl font-semibold ${title ? "group relative w-fit cursor-help" : ""}`}
-      >
-        {value}
-        {title ? (
-          <span className="pointer-events-none absolute bottom-full left-0 z-10 mb-2 hidden rounded-md bg-neutral-900 px-2 py-1 text-xs font-normal whitespace-nowrap text-white shadow-sm group-hover:block">
-            {title}
-          </span>
-        ) : null}
-      </p>
+      {loading ? (
+        <div className="mt-3 h-8 w-20 animate-pulse rounded-md bg-neutral-100" />
+      ) : (
+        <p
+          className={`mt-2 text-3xl font-semibold ${title ? "group relative w-fit cursor-help" : ""}`}
+        >
+          {value}
+          {title ? (
+            <span className="pointer-events-none absolute bottom-full left-0 z-10 mb-2 hidden rounded-md bg-neutral-900 px-2 py-1 text-xs font-normal whitespace-nowrap text-white shadow-sm group-hover:block">
+              {title}
+            </span>
+          ) : null}
+        </p>
+      )}
     </div>
   );
 }
@@ -337,12 +376,14 @@ function UsageTable({
   empty,
   headers,
   rows,
+  loading,
   onRowClick,
 }: {
   caption: string;
   empty: string;
   headers: string[];
   rows: string[][];
+  loading?: boolean;
   onRowClick?: (index: number) => void;
 }) {
   return (
@@ -365,7 +406,13 @@ function UsageTable({
             </tr>
           </thead>
           <tbody className="divide-y divide-black/5">
-            {rows.length === 0 ? (
+            {loading ? (
+              <tr>
+                <td colSpan={headers.length}>
+                  <Loader label="Loading usage…" />
+                </td>
+              </tr>
+            ) : rows.length === 0 ? (
               <tr>
                 <td colSpan={headers.length} className="px-6 py-10 text-neutral-500">
                   {empty}
@@ -428,7 +475,7 @@ function DetailPane({
           </p>
         </div>
       </div>
-      {loading ? <p className="text-sm text-neutral-500">Loading threads…</p> : null}
+      {loading ? <Loader label="Loading threads…" /> : null}
       {!loading ? <ThreadAccordion threads={threads} showProject={showProject} /> : null}
     </div>
   );
