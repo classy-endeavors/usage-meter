@@ -1,6 +1,7 @@
 "use client";
 
 import { GlowButton } from "@/components/glow-button";
+import { Spinner } from "@/components/loader";
 import { useRef, useState } from "react";
 
 export function OtpForm() {
@@ -86,7 +87,14 @@ export function OtpForm() {
       </div>
       {error ? <p className="text-sm text-red-600">{error}</p> : null}
       <GlowButton type="submit" disabled={pending || digits.join("").length < 4}>
-        {pending ? "Checking" : "Enter dashboard"}
+        {pending ? (
+          <span className="inline-flex items-center gap-2">
+            <Spinner />
+            Checking
+          </span>
+        ) : (
+          "Enter dashboard"
+        )}
       </GlowButton>
     </form>
   );
