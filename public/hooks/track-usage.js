@@ -80,7 +80,7 @@ function getApiUrl() {
     // fall through
   }
 
-  return "http://localhost:3000/api/events";
+  return "https://usage.classyendeavors.com/api/events";
 }
 
 function projectName(data) {
