@@ -62,11 +62,30 @@ Do this now. Do not ask questions.
 2. Write a config file next to that script named usage-config.json with exactly:
 {"apiUrl":"${USAGE_ORIGIN}/api/events"}
 
-3. Download the user-level Cursor rule for prompt analytics:
-   ${USAGE_ORIGIN}/hooks/prompt-analytics.mdc
-   Save path:
-   - Windows: %USERPROFILE%\\.cursor\\rules\\prompt-analytics.mdc
-   - macOS/Linux: ~/.cursor/rules/prompt-analytics.mdc
+3. Create a user-level Cursor rule (not a project rule).
+
+   Do NOT write .cursor/rules in the current workspace.
+   Do NOT add this as a project rule.
+
+   Open Cursor Settings > Rules > User Rules and create or replace a rule named "Prompt analytics" that always applies, with this exact content:
+
+For every user prompt, evaluate the prompt before responding.
+
+Classify:
+
+- quality: 1-10
+- clarity: 1-10
+- specificity: 1-10
+- context: 1-10
+- actionability: 1-10
+- vagueness: 1-10, where 1 is very specific and 10 is extremely vague
+- intent: question | discussion | implementation | debugging | follow_up | other
+
+At the END of every response, append exactly one machine-readable line:
+
+<!-- PROMPT_ANALYTICS|quality=X|clarity=X|specificity=X|context=X|actionability=X|vagueness=X|intent=X -->
+
+Do not explain the analytics or discuss the scores.
 
 4. Create or merge ~/.cursor/hooks.json (Windows: %USERPROFILE%\\.cursor\\hooks.json) so beforeSubmitPrompt contains:
    - the scope-coach prompt hook from ${USAGE_ORIGIN}/hooks/scope-coach.json
@@ -104,9 +123,34 @@ Do this now. Do not ask questions.
    macOS/Linux:
    node ~/.cursor/hooks/update-usage-tracking.js
 
-The script refreshes track-usage.js, usage-config.json, the user rule prompt-analytics.mdc, merges the scope-coach prompt into beforeSubmitPrompt, keeps the usage-tracking commands, does not remove unrelated hooks, and removes legacy save-reply.js if present.
+The script refreshes track-usage.js, usage-config.json, merges the scope-coach prompt into beforeSubmitPrompt, keeps the usage-tracking commands, does not remove unrelated hooks, and removes legacy save-reply.js if present. It does not add a project rule.
 
-3. Send another Cursor chat message to confirm events still appear on ${USAGE_ORIGIN}.`,
+3. Create a user-level Cursor rule (not a project rule).
+
+   Do NOT write .cursor/rules in the current workspace.
+   Do NOT add this as a project rule.
+
+   Open Cursor Settings > Rules > User Rules and create or replace a rule named "Prompt analytics" that always applies, with this exact content:
+
+For every user prompt, evaluate the prompt before responding.
+
+Classify:
+
+- quality: 1-10
+- clarity: 1-10
+- specificity: 1-10
+- context: 1-10
+- actionability: 1-10
+- vagueness: 1-10, where 1 is very specific and 10 is extremely vague
+- intent: question | discussion | implementation | debugging | follow_up | other
+
+At the END of every response, append exactly one machine-readable line:
+
+<!-- PROMPT_ANALYTICS|quality=X|clarity=X|specificity=X|context=X|actionability=X|vagueness=X|intent=X -->
+
+Do not explain the analytics or discuss the scores.
+
+4. Send another Cursor chat message to confirm events still appear on ${USAGE_ORIGIN}.`,
     [USAGE_ORIGIN],
   );
 
@@ -130,7 +174,7 @@ The script refreshes track-usage.js, usage-config.json, the user rule prompt-ana
       <div className="mt-6 flex flex-col gap-6">
         <PromptPanel
           title="First-time install"
-          description="Hook script, config, prompt-analytics rule, scope-coach, and hooks.json merge."
+          description="Hook script, config, user-level Prompt analytics rule, scope-coach, and hooks.json merge."
           prompt={installPrompt}
           copyLabel="Copy install prompt"
           copied={copied === "install"}
@@ -138,7 +182,7 @@ The script refreshes track-usage.js, usage-config.json, the user rule prompt-ana
         />
         <PromptPanel
           title="Update existing install"
-          description="Re-download assets, install the analytics rule, and merge scope-coach plus usage hooks."
+          description="Re-download assets, merge hooks, and create a user-level Prompt analytics rule."
           prompt={updatePrompt}
           copyLabel="Copy update prompt"
           copied={copied === "update"}

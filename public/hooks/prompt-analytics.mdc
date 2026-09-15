@@ -3,6 +3,8 @@ description: Evaluate prompt quality for analytics
 alwaysApply: true
 ---
 
+# Prompt analytics
+
 For every user prompt, evaluate the prompt before responding.
 
 Classify:
