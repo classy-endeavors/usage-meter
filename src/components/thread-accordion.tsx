@@ -1,8 +1,17 @@
 "use client";
 
 import { MarkdownPreview } from "@/components/markdown-preview";
-import type { ThreadGroup } from "@/lib/types";
+import type { ThreadGroup, UsageEvent } from "@/lib/types";
 import { useEffect, useRef, useState } from "react";
+
+export type PromptGroup = {
+  id: string;
+  title: string;
+  subtitle?: string;
+  total_tokens: number;
+  latest_at: string;
+  prompts: UsageEvent[];
+};
 
 function formatTokens(value: number) {
   return new Intl.NumberFormat("en-US").format(value);
@@ -13,45 +22,145 @@ function formatWhen(value: string) {
   return new Date(value).toLocaleString();
 }
 
-function shortId(value: string) {
-  if (!value || value === "unknown") return "unknown";
-  return value.length > 12 ? `${value.slice(0, 8)}…` : value;
+function sortGroups(map: Map<string, PromptGroup>): PromptGroup[] {
+  return [...map.values()]
+    .map((group) => ({
+      ...group,
+      prompts: [...group.prompts].sort((a, b) =>
+        (b.saved_at || "").localeCompare(a.saved_at || ""),
+      ),
+    }))
+    .sort(
+      (a, b) =>
+        b.total_tokens - a.total_tokens ||
+        (b.latest_at || "").localeCompare(a.latest_at || ""),
+    );
 }
 
-export function ThreadAccordion({
-  threads,
-  showProject = false,
+function addThread(map: Map<string, PromptGroup>, group: Omit<PromptGroup, "prompts" | "total_tokens" | "latest_at">, thread: ThreadGroup) {
+  const current = map.get(group.id) ?? {
+    ...group,
+    total_tokens: 0,
+    latest_at: "",
+    prompts: [],
+  };
+  current.total_tokens += thread.total_tokens;
+  current.prompts.push(...thread.prompts);
+  if (thread.latest_at && thread.latest_at > current.latest_at) {
+    current.latest_at = thread.latest_at;
+  }
+  if (!current.subtitle && group.subtitle) {
+    current.subtitle = group.subtitle;
+  }
+  map.set(group.id, current);
+}
+
+export function groupThreadsByUser(threads: ThreadGroup[]): PromptGroup[] {
+  const map = new Map<string, PromptGroup>();
+  for (const thread of threads) {
+    const email = thread.git_user_email?.trim();
+    const name = thread.git_user_name?.trim();
+    const id = email || name || "unknown";
+    addThread(
+      map,
+      {
+        id,
+        title: email || name || "unknown user",
+        subtitle: email && name ? name : undefined,
+      },
+      thread,
+    );
+  }
+  return sortGroups(map);
+}
+
+export function groupThreadsByProject(threads: ThreadGroup[]): PromptGroup[] {
+  const map = new Map<string, PromptGroup>();
+  for (const thread of threads) {
+    const id = thread.project_name?.trim() || "unknown";
+    addThread(map, { id, title: id }, thread);
+  }
+  return sortGroups(map);
+}
+
+function PromptList({
+  prompts,
+  groupId,
 }: {
-  threads: ThreadGroup[];
-  showProject?: boolean;
+  prompts: UsageEvent[];
+  groupId: string;
 }) {
+  return (
+    <ul className="space-y-3 border-t border-black/10 bg-neutral-50/80 p-5">
+      {prompts.map((prompt, index) => (
+        <li
+          key={prompt.id || `${groupId}-${index}`}
+          className="rounded-xl border border-black/5 bg-white p-4"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-neutral-500">
+            <span>
+              {formatWhen(prompt.saved_at)} · {prompt.model_id || prompt.model || "model"}
+            </span>
+            <span className="font-mono">
+              {formatTokens(
+                Number(prompt.input_tokens || 0) +
+                  Number(prompt.output_tokens || 0) +
+                  Number(prompt.cache_read_tokens || 0) +
+                  Number(prompt.cache_write_tokens || 0),
+              )}{" "}
+              tokens
+            </span>
+          </div>
+          <p className="mt-3 text-xs font-medium tracking-wide text-teal-700 uppercase">
+            Prompt
+          </p>
+          <p className="mt-1 whitespace-pre-wrap text-sm text-neutral-800">
+            {prompt.prompt || "(no prompt captured)"}
+          </p>
+          {prompt.output ? (
+            <details className="mt-3" open>
+              <summary className="cursor-pointer text-xs font-medium text-neutral-500">
+                Reply
+              </summary>
+              <div className="mt-2 max-h-[32rem] overflow-auto rounded-lg bg-neutral-50 p-4">
+                <MarkdownPreview content={prompt.output} />
+              </div>
+            </details>
+          ) : null}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+export function GroupedAccordion({ groups }: { groups: PromptGroup[] }) {
   const [openId, setOpenId] = useState<string | null>(null);
   const listKey = useRef("");
 
   useEffect(() => {
-    const nextKey = threads.map((thread) => thread.thread_id).join("|");
+    const nextKey = groups.map((group) => group.id).join("|");
     if (nextKey && nextKey !== listKey.current) {
       listKey.current = nextKey;
-      setOpenId(threads[0]?.thread_id ?? null);
+      setOpenId(groups[0]?.id ?? null);
     }
-  }, [threads]);
+  }, [groups]);
 
-  if (threads.length === 0) {
+  if (groups.length === 0) {
     return <p className="text-sm text-neutral-500">No prompts recorded.</p>;
   }
 
   return (
     <div className="space-y-3">
-      {threads.map((thread) => {
-        const open = openId === thread.thread_id;
+      {groups.map((group) => {
+        const open = openId === group.id;
         return (
           <article
-            key={thread.thread_id}
+            key={group.id}
             className="overflow-hidden rounded-2xl border border-black/10 bg-white shadow-sm"
           >
             <button
               type="button"
-              onClick={() => setOpenId(open ? null : thread.thread_id)}
+              onClick={() => setOpenId(open ? null : group.id)}
               className="flex w-full items-center gap-4 px-5 py-4 text-left hover:bg-neutral-50"
             >
               <span
@@ -60,69 +169,22 @@ export function ThreadAccordion({
                 ›
               </span>
               <div className="min-w-0 flex-1">
-                <p className="font-semibold">
-                  {thread.prompts[0]?.prompt
-                    ? thread.prompts[0].prompt.replace(/\s+/g, " ").slice(0, 90)
-                    : `Thread ${shortId(thread.thread_id)}`}
-                  {thread.prompts[0]?.prompt && thread.prompts[0].prompt.length > 90 ? "…" : ""}
-                </p>
+                <p className="font-semibold">{group.title}</p>
                 <p className="mt-1 text-xs text-neutral-500">
-                  {formatWhen(thread.latest_at)}
-                  {showProject ? ` · ${thread.project_name}` : ""}
-                  {" · "}
-                  {thread.git_user_email || thread.git_user_name || "unknown user"}
+                  {group.subtitle ? `${group.subtitle} · ` : ""}
+                  {formatWhen(group.latest_at)}
                 </p>
               </div>
               <div className="hidden shrink-0 text-right sm:block">
-                <p className="font-mono text-sm font-medium">{formatTokens(thread.total_tokens)}</p>
+                <p className="font-mono text-sm font-medium">
+                  {formatTokens(group.total_tokens)}
+                </p>
                 <p className="text-xs text-neutral-500">
-                  {thread.prompts.length} prompt{thread.prompts.length === 1 ? "" : "s"}
+                  {group.prompts.length} prompt{group.prompts.length === 1 ? "" : "s"}
                 </p>
               </div>
             </button>
-
-            {open ? (
-              <ul className="space-y-3 border-t border-black/10 bg-neutral-50/80 p-5">
-                {thread.prompts.map((prompt, index) => (
-                  <li
-                    key={prompt.id || `${thread.thread_id}-${index}`}
-                    className="rounded-xl border border-black/5 bg-white p-4"
-                  >
-                    <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-neutral-500">
-                      <span>
-                        {formatWhen(prompt.saved_at)} ·{" "}
-                        {prompt.model_id || prompt.model || "model"}
-                      </span>
-                      <span className="font-mono">
-                        {formatTokens(
-                          Number(prompt.input_tokens || 0) +
-                            Number(prompt.output_tokens || 0) +
-                            Number(prompt.cache_read_tokens || 0) +
-                            Number(prompt.cache_write_tokens || 0),
-                        )}{" "}
-                        tokens
-                      </span>
-                    </div>
-                    <p className="mt-3 text-xs font-medium tracking-wide text-teal-700 uppercase">
-                      Prompt
-                    </p>
-                    <p className="mt-1 whitespace-pre-wrap text-sm text-neutral-800">
-                      {prompt.prompt || "(no prompt captured)"}
-                    </p>
-                    {prompt.output ? (
-                      <details className="mt-3" open>
-                        <summary className="cursor-pointer text-xs font-medium text-neutral-500">
-                          Reply
-                        </summary>
-                        <div className="mt-2 max-h-[32rem] overflow-auto rounded-lg bg-neutral-50 p-4">
-                          <MarkdownPreview content={prompt.output} />
-                        </div>
-                      </details>
-                    ) : null}
-                  </li>
-                ))}
-              </ul>
-            ) : null}
+            {open ? <PromptList prompts={group.prompts} groupId={group.id} /> : null}
           </article>
         );
       })}
