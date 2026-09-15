@@ -80,7 +80,53 @@ function getApiUrl() {
     // fall through
   }
 
-  return "https://usage.classyendeavors.com/api/events";
+  throw new Error(
+    "Set CURSOR_USAGE_API_URL or hooks/usage-config.json with apiUrl.",
+  );
+}
+
+function parsePromptAnalytics(text) {
+  if (!text) return null;
+  const match = String(text).match(
+    /<!--\s*PROMPT_ANALYTICS\|quality=(\d+)\|clarity=(\d+)\|specificity=(\d+)\|context=(\d+)\|actionability=(\d+)\|vagueness=(\d+)\|intent=([a-z_]+)\s*-->/i,
+  );
+  if (!match) return null;
+
+  const clamp = (value) => {
+    const next = Number(value);
+    if (!Number.isFinite(next)) return null;
+    return Math.min(10, Math.max(1, Math.round(next)));
+  };
+
+  const quality = clamp(match[1]);
+  const clarity = clamp(match[2]);
+  const specificity = clamp(match[3]);
+  const context = clamp(match[4]);
+  const actionability = clamp(match[5]);
+  const vagueness = clamp(match[6]);
+  if ([quality, clarity, specificity, context, actionability, vagueness].some((value) => value == null)) {
+    return null;
+  }
+
+  const allowed = new Set([
+    "question",
+    "discussion",
+    "implementation",
+    "debugging",
+    "follow_up",
+    "other",
+  ]);
+  const intent = String(match[7] || "").toLowerCase();
+
+  return {
+    prompt_quality: quality,
+    prompt_clarity: clarity,
+    prompt_specificity: specificity,
+    prompt_context: context,
+    prompt_actionability: actionability,
+    prompt_vagueness: vagueness,
+    prompt_intent: allowed.has(intent) ? intent : "other",
+  };
 }
 
 function projectName(data) {
@@ -128,6 +174,7 @@ async function main() {
     body.output_tokens = Number(data.output_tokens || 0);
     body.cache_read_tokens = Number(data.cache_read_tokens || 0);
     body.cache_write_tokens = Number(data.cache_write_tokens || 0);
+    Object.assign(body, parsePromptAnalytics(body.output) || {});
   }
 
   const response = await fetch(getApiUrl(), {

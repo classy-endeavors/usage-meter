@@ -1,3 +1,5 @@
+import type { PromptIntent } from "@/lib/prompt-analytics";
+
 export type UsageEventInput = {
   saved_at?: string;
   git_user_name?: string;
@@ -18,6 +20,13 @@ export type UsageEventInput = {
   cache_read_tokens?: number;
   cache_write_tokens?: number;
   workspace_roots?: string;
+  prompt_quality?: number;
+  prompt_clarity?: number;
+  prompt_specificity?: number;
+  prompt_context?: number;
+  prompt_actionability?: number;
+  prompt_vagueness?: number;
+  prompt_intent?: PromptIntent;
 };
 
 export type UsageEvent = UsageEventInput & {
@@ -60,6 +69,15 @@ export type UserStat = {
   events: number;
   projects: number;
   total_tokens: number;
+  scored_prompts: number;
+  blocked_prompts: number;
+  avg_quality: number | null;
+  avg_clarity: number | null;
+  avg_specificity: number | null;
+  avg_context: number | null;
+  avg_actionability: number | null;
+  avg_vagueness: number | null;
+  intent_counts: Partial<Record<PromptIntent, number>>;
 };
 
 export type ThreadGroup = {

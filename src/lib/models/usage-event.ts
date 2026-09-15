@@ -21,6 +21,13 @@ const usageEventSchema = new Schema(
     cache_read_tokens: { type: Number, default: 0 },
     cache_write_tokens: { type: Number, default: 0 },
     workspace_roots: { type: String, default: "" },
+    prompt_quality: { type: Number },
+    prompt_clarity: { type: Number },
+    prompt_specificity: { type: Number },
+    prompt_context: { type: Number },
+    prompt_actionability: { type: Number },
+    prompt_vagueness: { type: Number },
+    prompt_intent: { type: String },
   },
   { timestamps: true },
 );

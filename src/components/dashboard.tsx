@@ -5,6 +5,10 @@ import { InstallPrompt } from "@/components/install-prompt";
 import { Loader, Spinner } from "@/components/loader";
 import { SiteFooter, SiteHeader } from "@/components/site-chrome";
 import {
+  UserAnalyticsGrid,
+  UserAnalyticsPanel,
+} from "@/components/prompt-meters";
+import {
   groupThreadsByProject,
   groupThreadsByUser,
   GroupedAccordion,
@@ -307,22 +311,10 @@ export function Dashboard() {
           ) : null}
 
           {tab === "users" && !userEmail ? (
-            <UsageTable
-              caption="Highest user consumption by git email"
-              empty="No users yet."
+            <UserAnalyticsGrid
+              users={stats?.users || []}
               loading={loading}
-              headers={["Git email", "Name", "Projects", "Turns", "Tokens"]}
-              onRowClick={(index) => {
-                const user = stats?.users[index];
-                if (user) void openUser(user.git_user_email);
-              }}
-              rows={(stats?.users || []).map((user) => [
-                user.git_user_email,
-                user.git_user_name || "—",
-                String(user.projects),
-                String(user.events),
-                formatTokens(Number(user.total_tokens)),
-              ])}
+              onSelect={(email) => void openUser(email)}
             />
           ) : null}
 
@@ -334,6 +326,7 @@ export function Dashboard() {
               loading={loadingDetail}
               threads={detailThreads}
               groupBy="project"
+              showMeters
               onBack={resetDetail}
             />
           ) : null}
@@ -457,6 +450,7 @@ function DetailPane({
   loading,
   threads,
   groupBy,
+  showMeters,
   onBack,
 }: {
   backLabel: string;
@@ -465,6 +459,7 @@ function DetailPane({
   loading: boolean;
   threads: ThreadGroup[];
   groupBy: "user" | "project";
+  showMeters?: boolean;
   onBack: () => void;
 }) {
   const groups =
@@ -490,7 +485,10 @@ function DetailPane({
       {loading ? (
         <Loader label={groupBy === "user" ? "Loading users…" : "Loading projects…"} />
       ) : (
-        <GroupedAccordion groups={groups} />
+        <>
+          {showMeters ? <UserAnalyticsPanel threads={threads} /> : null}
+          <GroupedAccordion groups={groups} />
+        </>
       )}
     </div>
   );
