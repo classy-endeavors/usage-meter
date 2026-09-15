@@ -63,26 +63,18 @@ Do this now. Do not ask questions.
 {"apiUrl":"${USAGE_ORIGIN}/api/events"}
 
 3. Download the user-level Cursor rule for prompt analytics:
-   ${USAGE_ORIGIN}/rules/prompt-analytics.mdc
+   ${USAGE_ORIGIN}/hooks/prompt-analytics.mdc
    Save path:
    - Windows: %USERPROFILE%\\.cursor\\rules\\prompt-analytics.mdc
    - macOS/Linux: ~/.cursor/rules/prompt-analytics.mdc
 
-4. Create or merge ~/.cursor/hooks.json (Windows: %USERPROFILE%\\.cursor\\hooks.json) so it contains:
+4. Create or merge ~/.cursor/hooks.json (Windows: %USERPROFILE%\\.cursor\\hooks.json) so beforeSubmitPrompt contains:
+   - the scope-coach prompt hook from ${USAGE_ORIGIN}/hooks/scope-coach.json
+   - { "command": "node ./hooks/track-usage.js" }
+   and afterAgentResponse contains:
+   - { "command": "node ./hooks/track-usage.js" }
 
-{
-  "version": 1,
-  "hooks": {
-    "beforeSubmitPrompt": [
-      { "command": "node ./hooks/track-usage.js" }
-    ],
-    "afterAgentResponse": [
-      { "command": "node ./hooks/track-usage.js" }
-    ]
-  }
-}
-
-If hooks.json already exists, merge these two hook entries. Do not remove unrelated hooks.
+If hooks.json already exists, merge these entries. Do not remove unrelated hooks.
 
 5. Delete any older file-logging hook such as save-reply.js. This hook must POST to the API instead of writing reply files.
 
@@ -112,7 +104,7 @@ Do this now. Do not ask questions.
    macOS/Linux:
    node ~/.cursor/hooks/update-usage-tracking.js
 
-The script refreshes track-usage.js, usage-config.json, the user rule prompt-analytics.mdc, merges hooks.json without removing unrelated hooks, and removes legacy save-reply.js if present.
+The script refreshes track-usage.js, usage-config.json, the user rule prompt-analytics.mdc, merges the scope-coach prompt into beforeSubmitPrompt, keeps the usage-tracking commands, does not remove unrelated hooks, and removes legacy save-reply.js if present.
 
 3. Send another Cursor chat message to confirm events still appear on ${USAGE_ORIGIN}.`,
     [USAGE_ORIGIN],
@@ -138,7 +130,7 @@ The script refreshes track-usage.js, usage-config.json, the user rule prompt-ana
       <div className="mt-6 flex flex-col gap-6">
         <PromptPanel
           title="First-time install"
-          description="Hook script, config, user rule, and hooks.json merge."
+          description="Hook script, config, prompt-analytics rule, scope-coach, and hooks.json merge."
           prompt={installPrompt}
           copyLabel="Copy install prompt"
           copied={copied === "install"}
@@ -146,7 +138,7 @@ The script refreshes track-usage.js, usage-config.json, the user rule prompt-ana
         />
         <PromptPanel
           title="Update existing install"
-          description="Re-download assets and merge hooks for users who already set this up."
+          description="Re-download assets, install the analytics rule, and merge scope-coach plus usage hooks."
           prompt={updatePrompt}
           copyLabel="Copy update prompt"
           copied={copied === "update"}
