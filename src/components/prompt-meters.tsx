@@ -33,6 +33,12 @@ const TONE_COLOR = {
   poor: "#e11d48",
 };
 
+function formatScore(value: number | null) {
+  if (value == null) return "—";
+  const rounded = Math.round(value * 10) / 10;
+  return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+}
+
 function ScoreMeter({
   label,
   value,
@@ -42,15 +48,17 @@ function ScoreMeter({
   label: string;
   value: number | null;
   invert?: boolean;
-  size?: "sm" | "md";
+  size?: "xs" | "sm" | "md";
 }) {
   const tone = meterTone(value, invert);
   const pct = value == null ? 0 : (value / 10) * 100;
-  const dim = size === "sm" ? "h-14 w-14" : "h-[4.5rem] w-[4.5rem]";
-  const inner = size === "sm" ? "inset-1.5 text-sm" : "inset-2 text-base";
+  const dim =
+    size === "xs" ? "h-9 w-9" : size === "sm" ? "h-11 w-11" : "h-[4.5rem] w-[4.5rem]";
+  const inner =
+    size === "xs" ? "inset-1 text-[10px]" : size === "sm" ? "inset-1.5 text-xs" : "inset-2 text-base";
 
   return (
-    <div className="flex flex-col items-center gap-1.5">
+    <div className="flex min-w-0 flex-col items-center gap-1">
       <div
         className={`relative ${dim} rounded-full`}
         style={{
@@ -59,12 +67,12 @@ function ScoreMeter({
         title={invert ? `${label}: higher means more vague` : label}
       >
         <div
-          className={`absolute ${inner} flex items-center justify-center rounded-full bg-white font-semibold`}
+          className={`absolute ${inner} flex items-center justify-center rounded-full bg-white font-semibold tabular-nums`}
         >
-          {value == null ? "—" : value}
+          {formatScore(value)}
         </div>
       </div>
-      <p className="text-[11px] font-medium tracking-wide text-neutral-500 uppercase">
+      <p className="text-center text-[9px] font-medium tracking-wide text-neutral-500 uppercase">
         {label}
       </p>
     </div>
@@ -86,7 +94,7 @@ function ScoreBar({
       <div className="flex items-center justify-between gap-2 text-[11px]">
         <span className="font-medium text-neutral-500">{metric.label}</span>
         <span className="font-mono text-neutral-700">
-          {value == null ? "—" : value}
+          {formatScore(value)}
         </span>
       </div>
       <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-neutral-200">
@@ -157,15 +165,15 @@ export function UserScoreMeters({
   compact?: boolean;
 }) {
   return (
-    <div className={compact ? "space-y-3" : "space-y-4"}>
-      <div className={`grid grid-cols-3 gap-3 ${compact ? "" : "sm:grid-cols-6"}`}>
+    <div className={compact ? "space-y-2" : "space-y-4"}>
+      <div className={`grid grid-cols-6 ${compact ? "gap-1.5" : "gap-3"}`}>
         {SCORE_METRICS.map((metric) => (
           <ScoreMeter
             key={metric.key}
             label={metric.label}
             value={averages[metric.avgKey]}
             invert={metric.invert}
-            size={compact ? "sm" : "md"}
+            size={compact ? "xs" : "sm"}
           />
         ))}
       </div>
@@ -175,13 +183,18 @@ export function UserScoreMeters({
 }
 
 export function UserAnalyticsPanel({
-  threads,
+  threads = [],
+  averages,
+  compact = true,
   title = "Prompt quality",
 }: {
-  threads: ThreadGroup[];
+  threads?: ThreadGroup[];
+  averages?: PromptScoreAverages | UserStat;
+  compact?: boolean;
   title?: string;
 }) {
-  const averages = aggregatePromptScores(threads.flatMap((thread) => thread.prompts));
+  const resolved =
+    averages ?? aggregatePromptScores(threads.flatMap((thread) => thread.prompts));
 
   return (
     <section className="mb-6 rounded-2xl border border-black/10 bg-white p-5 shadow-sm">
@@ -189,21 +202,21 @@ export function UserAnalyticsPanel({
         <div>
           <h3 className="text-sm font-semibold">{title}</h3>
           <p className="mt-1 text-xs text-neutral-500">
-            {averages.scored_prompts} scored prompt
-            {averages.scored_prompts === 1 ? "" : "s"}
-            {averages.blocked_prompts
-              ? ` · ${averages.blocked_prompts} with no output tokens`
+            {resolved.scored_prompts} scored prompt
+            {resolved.scored_prompts === 1 ? "" : "s"}
+            {resolved.blocked_prompts
+              ? ` · ${resolved.blocked_prompts} with no output tokens`
               : ""}
           </p>
         </div>
       </div>
-      {averages.scored_prompts === 0 ? (
+      {resolved.scored_prompts === 0 ? (
         <p className="text-sm text-neutral-500">
           No prompt scores yet. Scores appear after the agent replies with the
           analytics line.
         </p>
       ) : (
-        <UserScoreMeters averages={averages} />
+        <UserScoreMeters averages={resolved} compact={compact} />
       )}
     </section>
   );
@@ -263,7 +276,7 @@ export function UserAnalyticsGrid({
                 {formatTokens(Number(user.total_tokens))}
               </p>
             </div>
-            <div className="mt-4">
+            <div className="mt-3">
               {user.scored_prompts > 0 ? (
                 <UserScoreMeters averages={user} compact />
               ) : (

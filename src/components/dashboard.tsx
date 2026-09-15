@@ -327,6 +327,9 @@ export function Dashboard() {
               threads={detailThreads}
               groupBy="project"
               showMeters
+              meterAverages={(stats?.users || []).find(
+                (user) => user.git_user_email === userEmail,
+              )}
               onBack={resetDetail}
             />
           ) : null}
@@ -451,6 +454,7 @@ function DetailPane({
   threads,
   groupBy,
   showMeters,
+  meterAverages,
   onBack,
 }: {
   backLabel: string;
@@ -460,6 +464,7 @@ function DetailPane({
   threads: ThreadGroup[];
   groupBy: "user" | "project";
   showMeters?: boolean;
+  meterAverages?: UserStat;
   onBack: () => void;
 }) {
   const groups =
@@ -486,7 +491,9 @@ function DetailPane({
         <Loader label={groupBy === "user" ? "Loading users…" : "Loading projects…"} />
       ) : (
         <>
-          {showMeters ? <UserAnalyticsPanel threads={threads} /> : null}
+          {showMeters ? (
+            <UserAnalyticsPanel threads={threads} averages={meterAverages} />
+          ) : null}
           <GroupedAccordion groups={groups} />
         </>
       )}

@@ -297,13 +297,69 @@ export async function userStats(range?: DateRange): Promise<UserStat[]> {
             $cond: [{ $lte: [{ $ifNull: ["$output_tokens", 0] }, 0] }, 1, 0],
           },
         },
-        avg_quality: { $avg: "$prompt_quality" },
-        avg_clarity: { $avg: "$prompt_clarity" },
-        avg_specificity: { $avg: "$prompt_specificity" },
-        avg_context: { $avg: "$prompt_context" },
-        avg_actionability: { $avg: "$prompt_actionability" },
-        avg_vagueness: { $avg: "$prompt_vagueness" },
-        intents: { $push: "$prompt_intent" },
+        avg_quality: {
+          $avg: {
+            $cond: [
+              { $gt: [{ $ifNull: ["$prompt_quality", 0] }, 0] },
+              "$prompt_quality",
+              null,
+            ],
+          },
+        },
+        avg_clarity: {
+          $avg: {
+            $cond: [
+              { $gt: [{ $ifNull: ["$prompt_quality", 0] }, 0] },
+              "$prompt_clarity",
+              null,
+            ],
+          },
+        },
+        avg_specificity: {
+          $avg: {
+            $cond: [
+              { $gt: [{ $ifNull: ["$prompt_quality", 0] }, 0] },
+              "$prompt_specificity",
+              null,
+            ],
+          },
+        },
+        avg_context: {
+          $avg: {
+            $cond: [
+              { $gt: [{ $ifNull: ["$prompt_quality", 0] }, 0] },
+              "$prompt_context",
+              null,
+            ],
+          },
+        },
+        avg_actionability: {
+          $avg: {
+            $cond: [
+              { $gt: [{ $ifNull: ["$prompt_quality", 0] }, 0] },
+              "$prompt_actionability",
+              null,
+            ],
+          },
+        },
+        avg_vagueness: {
+          $avg: {
+            $cond: [
+              { $gt: [{ $ifNull: ["$prompt_quality", 0] }, 0] },
+              "$prompt_vagueness",
+              null,
+            ],
+          },
+        },
+        intents: {
+          $push: {
+            $cond: [
+              { $gt: [{ $ifNull: ["$prompt_quality", 0] }, 0] },
+              "$prompt_intent",
+              null,
+            ],
+          },
+        },
       },
     },
     {
@@ -368,7 +424,7 @@ export async function userDetail(
 ): Promise<ThreadGroup[]> {
   await dbConnect();
   const docs = await UsageEvent.find({
-    $or: [{ git_user_email: email }, { cursor_user_email: email }],
+    $expr: { $eq: [userEmailExpr, email] },
     ...savedAtFilter(range),
   })
     .sort({ saved_at: -1, createdAt: -1 })
