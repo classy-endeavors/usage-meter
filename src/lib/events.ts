@@ -2,6 +2,11 @@ import { UsageEvent } from "@/lib/models/usage-event";
 import { dbConnect } from "@/lib/mongoose";
 import { savedAtFilter, type DateRange } from "@/lib/date-range";
 import type { PipelineStage } from "mongoose";
+import {
+  countIntents,
+  mergePromptAnalytics,
+  roundAvg,
+} from "@/lib/prompt-analytics";
 import type {
   ProjectStat,
   ThreadGroup,
@@ -25,7 +30,7 @@ function compact(input: UsageEventInput) {
 
   for (const [key, value] of Object.entries(input)) {
     if (value === undefined || value === null) continue;
-    if (typeof value === "string" && value === "" && key === "generation_id") continue;
+    if (typeof value === "string" && value === "" && (key === "generation_id" || key === "prompt_intent")) continue;
     if (key === "saved_at") {
       next[key] = new Date(value);
       continue;
@@ -38,7 +43,7 @@ function compact(input: UsageEventInput) {
 
 export async function upsertEvent(input: UsageEventInput) {
   await dbConnect();
-  const fields = compact(input);
+  const fields = compact(mergePromptAnalytics(input));
 
   if (input.generation_id) {
     const updateFields = { ...fields };
@@ -100,7 +105,25 @@ function toEvent(doc: {
   cache_read_tokens?: number;
   cache_write_tokens?: number;
   workspace_roots?: string;
+  prompt_quality?: number;
+  prompt_clarity?: number;
+  prompt_specificity?: number;
+  prompt_context?: number;
+  prompt_actionability?: number;
+  prompt_vagueness?: number;
+  prompt_intent?: UsageEventRow["prompt_intent"];
 }): UsageEventRow {
+  const analytics = mergePromptAnalytics({
+    output: doc.output,
+    prompt_quality: doc.prompt_quality,
+    prompt_clarity: doc.prompt_clarity,
+    prompt_specificity: doc.prompt_specificity,
+    prompt_context: doc.prompt_context,
+    prompt_actionability: doc.prompt_actionability,
+    prompt_vagueness: doc.prompt_vagueness,
+    prompt_intent: doc.prompt_intent,
+  });
+
   return {
     id: String(doc._id || ""),
     saved_at: doc.saved_at ? new Date(doc.saved_at).toISOString() : "",
@@ -122,6 +145,13 @@ function toEvent(doc: {
     cache_read_tokens: Number(doc.cache_read_tokens || 0),
     cache_write_tokens: Number(doc.cache_write_tokens || 0),
     workspace_roots: doc.workspace_roots || "",
+    prompt_quality: analytics.prompt_quality,
+    prompt_clarity: analytics.prompt_clarity,
+    prompt_specificity: analytics.prompt_specificity,
+    prompt_context: analytics.prompt_context,
+    prompt_actionability: analytics.prompt_actionability,
+    prompt_vagueness: analytics.prompt_vagueness,
+    prompt_intent: analytics.prompt_intent,
   };
 }
 
@@ -246,7 +276,9 @@ export async function threadStats(range?: DateRange): Promise<ThreadStat[]> {
 
 export async function userStats(range?: DateRange): Promise<UserStat[]> {
   await dbConnect();
-  return UsageEvent.aggregate<UserStat>(
+  const rows = await UsageEvent.aggregate<
+    Omit<UserStat, "intent_counts"> & { intents?: Array<string | null> }
+  >(
     pipeline(range, [
     {
       $group: {
@@ -255,6 +287,23 @@ export async function userStats(range?: DateRange): Promise<UserStat[]> {
         events: { $sum: 1 },
         projects: { $addToSet: "$project_name" },
         total_tokens: { $sum: TOKEN_ADD },
+        scored_prompts: {
+          $sum: {
+            $cond: [{ $gt: [{ $ifNull: ["$prompt_quality", 0] }, 0] }, 1, 0],
+          },
+        },
+        blocked_prompts: {
+          $sum: {
+            $cond: [{ $lte: [{ $ifNull: ["$output_tokens", 0] }, 0] }, 1, 0],
+          },
+        },
+        avg_quality: { $avg: "$prompt_quality" },
+        avg_clarity: { $avg: "$prompt_clarity" },
+        avg_specificity: { $avg: "$prompt_specificity" },
+        avg_context: { $avg: "$prompt_context" },
+        avg_actionability: { $avg: "$prompt_actionability" },
+        avg_vagueness: { $avg: "$prompt_vagueness" },
+        intents: { $push: "$prompt_intent" },
       },
     },
     {
@@ -265,11 +314,37 @@ export async function userStats(range?: DateRange): Promise<UserStat[]> {
         events: 1,
         projects: { $size: "$projects" },
         total_tokens: 1,
+        scored_prompts: 1,
+        blocked_prompts: 1,
+        avg_quality: 1,
+        avg_clarity: 1,
+        avg_specificity: 1,
+        avg_context: 1,
+        avg_actionability: 1,
+        avg_vagueness: 1,
+        intents: 1,
       },
     },
     { $sort: { total_tokens: -1, events: -1 } },
     ]),
   );
+
+  return rows.map((row) => ({
+    git_user_email: row.git_user_email,
+    git_user_name: row.git_user_name,
+    events: row.events,
+    projects: row.projects,
+    total_tokens: row.total_tokens,
+    scored_prompts: Number(row.scored_prompts || 0),
+    blocked_prompts: Number(row.blocked_prompts || 0),
+    avg_quality: roundAvg(row.avg_quality),
+    avg_clarity: roundAvg(row.avg_clarity),
+    avg_specificity: roundAvg(row.avg_specificity),
+    avg_context: roundAvg(row.avg_context),
+    avg_actionability: roundAvg(row.avg_actionability),
+    avg_vagueness: roundAvg(row.avg_vagueness),
+    intent_counts: countIntents(row.intents || []),
+  }));
 }
 
 export async function projectDetail(

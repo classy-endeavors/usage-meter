@@ -1,6 +1,8 @@
 "use client";
 
 import { MarkdownPreview } from "@/components/markdown-preview";
+import { PromptScoreBars } from "@/components/prompt-meters";
+import { hasOutputTokens } from "@/lib/prompt-analytics";
 import type { ThreadGroup, UsageEvent } from "@/lib/types";
 import { useEffect, useRef, useState } from "react";
 
@@ -92,43 +94,68 @@ function PromptList({
 }) {
   return (
     <ul className="space-y-3 border-t border-black/10 bg-neutral-50/80 p-5">
-      {prompts.map((prompt, index) => (
-        <li
-          key={prompt.id || `${groupId}-${index}`}
-          className="rounded-xl border border-black/5 bg-white p-4"
-        >
-          <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-neutral-500">
-            <span>
-              {formatWhen(prompt.saved_at)} · {prompt.model_id || prompt.model || "model"}
-            </span>
-            <span className="font-mono">
-              {formatTokens(
-                Number(prompt.input_tokens || 0) +
-                  Number(prompt.output_tokens || 0) +
-                  Number(prompt.cache_read_tokens || 0) +
-                  Number(prompt.cache_write_tokens || 0),
-              )}{" "}
-              tokens
-            </span>
-          </div>
-          <p className="mt-3 text-xs font-medium tracking-wide text-teal-700 uppercase">
-            Prompt
-          </p>
-          <p className="mt-1 whitespace-pre-wrap text-sm text-neutral-800">
-            {prompt.prompt || "(no prompt captured)"}
-          </p>
-          {prompt.output ? (
-            <details className="mt-3" open>
-              <summary className="cursor-pointer text-xs font-medium text-neutral-500">
-                Reply
-              </summary>
-              <div className="mt-2 max-h-[32rem] overflow-auto rounded-lg bg-neutral-50 p-4">
-                <MarkdownPreview content={prompt.output} />
-              </div>
-            </details>
-          ) : null}
-        </li>
-      ))}
+      {prompts.map((prompt, index) => {
+        const noOutputTokens = !hasOutputTokens(prompt.output_tokens);
+        const noReply = !prompt.output;
+
+        return (
+          <li
+            key={prompt.id || `${groupId}-${index}`}
+            className={
+              noOutputTokens
+                ? "rounded-xl border border-amber-200 bg-amber-50/80 p-4"
+                : "rounded-xl border border-black/5 bg-white p-4"
+            }
+          >
+            <div className="flex flex-wrap items-start justify-between gap-2 text-xs text-neutral-500">
+              <span>
+                {formatWhen(prompt.saved_at)} · {prompt.model_id || prompt.model || "model"}
+              </span>
+              {noOutputTokens ? (
+                <span className="rounded-full bg-amber-100 px-2 py-1 text-[11px] font-medium text-amber-800">
+                  {noReply ? "No reply · blocked or pending" : "Output tokens not reported"}
+                </span>
+              ) : (
+                <span className="font-mono">
+                  {formatTokens(
+                    Number(prompt.input_tokens || 0) +
+                      Number(prompt.output_tokens || 0) +
+                      Number(prompt.cache_read_tokens || 0) +
+                      Number(prompt.cache_write_tokens || 0),
+                  )}{" "}
+                  tokens
+                </span>
+              )}
+            </div>
+            {noOutputTokens ? (
+              <p className="mt-2 font-mono text-[11px] text-amber-800">
+                {formatTokens(Number(prompt.input_tokens || 0))} in · — out
+              </p>
+            ) : null}
+            <p className="mt-3 text-xs font-medium tracking-wide text-teal-700 uppercase">
+              Prompt
+            </p>
+            <p className="mt-1 whitespace-pre-wrap text-sm text-neutral-800">
+              {prompt.prompt || "(no prompt captured)"}
+            </p>
+            <PromptScoreBars event={prompt} />
+            {prompt.output ? (
+              <details className="mt-3" open={!noOutputTokens}>
+                <summary className="cursor-pointer text-xs font-medium text-neutral-500">
+                  Reply
+                </summary>
+                <div className="mt-2 max-h-[32rem] overflow-auto rounded-lg bg-neutral-50 p-4">
+                  <MarkdownPreview content={prompt.output} />
+                </div>
+              </details>
+            ) : noOutputTokens ? (
+              <p className="mt-3 text-sm text-amber-800">
+                The agent never replied, so there are no output tokens to count.
+              </p>
+            ) : null}
+          </li>
+        );
+      })}
     </ul>
   );
 }
