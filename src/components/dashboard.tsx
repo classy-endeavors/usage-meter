@@ -4,7 +4,11 @@ import { DateFilter, type RangePreset } from "@/components/date-filter";
 import { InstallPrompt } from "@/components/install-prompt";
 import { Loader, Spinner } from "@/components/loader";
 import { SiteFooter, SiteHeader } from "@/components/site-chrome";
-import { ThreadAccordion } from "@/components/thread-accordion";
+import {
+  groupThreadsByProject,
+  groupThreadsByUser,
+  GroupedAccordion,
+} from "@/components/thread-accordion";
 import type { ProjectStat, ThreadGroup, ThreadStat, UserStat } from "@/lib/types";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -294,8 +298,10 @@ export function Dashboard() {
             <DetailPane
               backLabel="All projects"
               title={projectName}
+              hint="Users are highest first. Click a user to expand their prompts."
               loading={loadingDetail}
               threads={detailThreads}
+              groupBy="user"
               onBack={resetDetail}
             />
           ) : null}
@@ -324,9 +330,10 @@ export function Dashboard() {
             <DetailPane
               backLabel="All users"
               title={userEmail}
+              hint="Projects are highest first. Click a project to expand its prompts."
               loading={loadingDetail}
               threads={detailThreads}
-              showProject
+              groupBy="project"
               onBack={resetDetail}
             />
           ) : null}
@@ -446,18 +453,25 @@ function UsageTable({
 function DetailPane({
   backLabel,
   title,
+  hint,
   loading,
   threads,
-  showProject = false,
+  groupBy,
   onBack,
 }: {
   backLabel: string;
   title: string;
+  hint: string;
   loading: boolean;
   threads: ThreadGroup[];
-  showProject?: boolean;
+  groupBy: "user" | "project";
   onBack: () => void;
 }) {
+  const groups =
+    groupBy === "user"
+      ? groupThreadsByUser(threads)
+      : groupThreadsByProject(threads);
+
   return (
     <div>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
@@ -470,13 +484,14 @@ function DetailPane({
             ← {backLabel}
           </button>
           <h2 className="mt-2 text-2xl font-semibold">{title}</h2>
-          <p className="mt-1 text-sm text-neutral-500">
-            Threads are newest first. Click a thread to expand its prompts.
-          </p>
+          <p className="mt-1 text-sm text-neutral-500">{hint}</p>
         </div>
       </div>
-      {loading ? <Loader label="Loading threads…" /> : null}
-      {!loading ? <ThreadAccordion threads={threads} showProject={showProject} /> : null}
+      {loading ? (
+        <Loader label={groupBy === "user" ? "Loading users…" : "Loading projects…"} />
+      ) : (
+        <GroupedAccordion groups={groups} />
+      )}
     </div>
   );
 }
