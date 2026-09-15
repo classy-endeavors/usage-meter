@@ -1,14 +1,10 @@
 const fs = require("fs");
+const http = require("http");
 const https = require("https");
 const os = require("os");
 const path = require("path");
 
 const TRACK_USAGE_COMMAND = "node ./hooks/track-usage.js";
-
-const HOOK_ENTRIES = {
-  beforeSubmitPrompt: [{ command: TRACK_USAGE_COMMAND }],
-  afterAgentResponse: [{ command: TRACK_USAGE_COMMAND }],
-};
 
 function cursorDir() {
   return path.join(os.homedir(), ".cursor");
@@ -34,17 +30,33 @@ function getOrigin() {
   );
 }
 
+function isHtml(buffer, contentType) {
+  const type = String(contentType || "").toLowerCase();
+  if (type.includes("text/html")) return true;
+  const start = String(buffer).trimStart().slice(0, 32).toLowerCase();
+  return start.startsWith("<!doctype") || start.startsWith("<html");
+}
+
 function download(url) {
   return new Promise((resolve, reject) => {
     const request = (target) => {
-      https
-        .get(target, (res) => {
+      let parsed;
+      try {
+        parsed = new URL(target);
+      } catch {
+        reject(new Error(`Invalid URL: ${target}`));
+        return;
+      }
+
+      const client = parsed.protocol === "http:" ? http : https;
+      client
+        .get(parsed, (res) => {
           if (
             res.statusCode >= 300 &&
             res.statusCode < 400 &&
             res.headers.location
           ) {
-            request(res.headers.location);
+            request(new URL(res.headers.location, parsed).href);
             return;
           }
           if (res.statusCode !== 200) {
@@ -53,7 +65,18 @@ function download(url) {
           }
           const chunks = [];
           res.on("data", (chunk) => chunks.push(chunk));
-          res.on("end", () => resolve(Buffer.concat(chunks)));
+          res.on("end", () => {
+            const body = Buffer.concat(chunks);
+            if (isHtml(body, res.headers["content-type"])) {
+              reject(
+                new Error(
+                  `Got an HTML page instead of a file for ${target}. The URL may still be gated.`,
+                ),
+              );
+              return;
+            }
+            resolve(body);
+          });
         })
         .on("error", reject);
     };
@@ -61,18 +84,78 @@ function download(url) {
   });
 }
 
-function mergeHooks(existing) {
+async function downloadFirst(urls) {
+  let lastError;
+  for (const url of urls) {
+    try {
+      return await download(url);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError;
+}
+
+function isTrackUsage(item) {
+  return Boolean(item && item.command === TRACK_USAGE_COMMAND);
+}
+
+function isScopeCoach(item) {
+  return Boolean(
+    item &&
+      item.type === "prompt" &&
+      /scope-coach/i.test(String(item.prompt || "")),
+  );
+}
+
+function parseScopeCoach(buffer) {
+  let entry;
+  try {
+    entry = JSON.parse(String(buffer));
+  } catch {
+    throw new Error("scope-coach.json was not valid JSON.");
+  }
+  if (!isScopeCoach(entry) || typeof entry.timeout !== "number") {
+    throw new Error("scope-coach.json did not contain the expected prompt hook.");
+  }
+  return {
+    type: "prompt",
+    prompt: entry.prompt,
+    timeout: entry.timeout,
+  };
+}
+
+function assertRule(buffer) {
+  const text = String(buffer);
+  if (!text.includes("PROMPT_ANALYTICS") || !text.includes("alwaysApply")) {
+    throw new Error(
+      "prompt-analytics.mdc download did not look like the analytics rule.",
+    );
+  }
+  return text;
+}
+
+function mergeHooks(existing, scopeCoach) {
   const base = existing && typeof existing === "object" ? existing : {};
   const hooks =
     base.hooks && typeof base.hooks === "object" ? { ...base.hooks } : {};
 
-  for (const [event, entries] of Object.entries(HOOK_ENTRIES)) {
+  const wanted = {
+    beforeSubmitPrompt: [scopeCoach, { command: TRACK_USAGE_COMMAND }],
+    afterAgentResponse: [{ command: TRACK_USAGE_COMMAND }],
+  };
+
+  for (const [event, entries] of Object.entries(wanted)) {
     const current = Array.isArray(hooks[event]) ? [...hooks[event]] : [];
     for (const entry of entries) {
-      const exists = current.some(
-        (item) => item && item.command === entry.command,
+      const index = current.findIndex((item) =>
+        isScopeCoach(entry) ? isScopeCoach(item) : isTrackUsage(item) && isTrackUsage(entry),
       );
-      if (!exists) {
+      if (index >= 0) {
+        current[index] = entry;
+      } else if (isScopeCoach(entry)) {
+        current.unshift(entry);
+      } else {
         current.push(entry);
       }
     }
@@ -91,17 +174,24 @@ async function main() {
   fs.mkdirSync(hooksDir, { recursive: true });
   fs.mkdirSync(rulesDir, { recursive: true });
 
-  const [trackUsage, rule] = await Promise.all([
+  const [trackUsage, rule, scopeCoachRaw] = await Promise.all([
     download(`${ORIGIN}/hooks/track-usage.js`),
-    download(`${ORIGIN}/rules/prompt-analytics.mdc`),
+    downloadFirst([
+      `${ORIGIN}/hooks/prompt-analytics.mdc`,
+      `${ORIGIN}/rules/prompt-analytics.mdc`,
+    ]),
+    download(`${ORIGIN}/hooks/scope-coach.json`),
   ]);
+
+  const scopeCoach = parseScopeCoach(scopeCoachRaw);
+  const ruleText = assertRule(rule);
 
   fs.writeFileSync(path.join(hooksDir, "track-usage.js"), trackUsage);
   fs.writeFileSync(
     path.join(hooksDir, "usage-config.json"),
     `${JSON.stringify({ apiUrl: `${ORIGIN}/api/events` })}\n`,
   );
-  fs.writeFileSync(path.join(rulesDir, "prompt-analytics.mdc"), rule);
+  fs.writeFileSync(path.join(rulesDir, "prompt-analytics.mdc"), ruleText);
 
   const hooksJsonPath = path.join(root, "hooks.json");
   let existing = {};
@@ -114,7 +204,7 @@ async function main() {
   }
   fs.writeFileSync(
     hooksJsonPath,
-    `${JSON.stringify(mergeHooks(existing), null, 2)}\n`,
+    `${JSON.stringify(mergeHooks(existing, scopeCoach), null, 2)}\n`,
   );
 
   const legacyReplyHook = path.join(hooksDir, "save-reply.js");
@@ -127,10 +217,19 @@ async function main() {
   console.log(`  ${path.join(hooksDir, "track-usage.js")}`);
   console.log(`  ${path.join(hooksDir, "usage-config.json")}`);
   console.log(`  ${path.join(rulesDir, "prompt-analytics.mdc")}`);
-  console.log(`  ${hooksJsonPath} (merged)`);
+  console.log(`  ${hooksJsonPath} (merged scope-coach + usage tracking)`);
 }
 
-main().catch((error) => {
-  console.error(error.message || error);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((error) => {
+    console.error(error.message || error);
+    process.exit(1);
+  });
+}
+
+module.exports = {
+  mergeHooks,
+  parseScopeCoach,
+  isScopeCoach,
+  isTrackUsage,
+};
