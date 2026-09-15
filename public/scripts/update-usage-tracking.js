@@ -84,18 +84,6 @@ function download(url) {
   });
 }
 
-async function downloadFirst(urls) {
-  let lastError;
-  for (const url of urls) {
-    try {
-      return await download(url);
-    } catch (error) {
-      lastError = error;
-    }
-  }
-  throw lastError;
-}
-
 function isTrackUsage(item) {
   return Boolean(item && item.command === TRACK_USAGE_COMMAND);
 }
@@ -123,16 +111,6 @@ function parseScopeCoach(buffer) {
     prompt: entry.prompt,
     timeout: entry.timeout,
   };
-}
-
-function assertRule(buffer) {
-  const text = String(buffer);
-  if (!text.includes("PROMPT_ANALYTICS") || !text.includes("alwaysApply")) {
-    throw new Error(
-      "prompt-analytics.mdc download did not look like the analytics rule.",
-    );
-  }
-  return text;
 }
 
 function mergeHooks(existing, scopeCoach) {
@@ -169,29 +147,21 @@ async function main() {
   const ORIGIN = getOrigin();
   const root = cursorDir();
   const hooksDir = path.join(root, "hooks");
-  const rulesDir = path.join(root, "rules");
 
   fs.mkdirSync(hooksDir, { recursive: true });
-  fs.mkdirSync(rulesDir, { recursive: true });
 
-  const [trackUsage, rule, scopeCoachRaw] = await Promise.all([
+  const [trackUsage, scopeCoachRaw] = await Promise.all([
     download(`${ORIGIN}/hooks/track-usage.js`),
-    downloadFirst([
-      `${ORIGIN}/hooks/prompt-analytics.mdc`,
-      `${ORIGIN}/rules/prompt-analytics.mdc`,
-    ]),
     download(`${ORIGIN}/hooks/scope-coach.json`),
   ]);
 
   const scopeCoach = parseScopeCoach(scopeCoachRaw);
-  const ruleText = assertRule(rule);
 
   fs.writeFileSync(path.join(hooksDir, "track-usage.js"), trackUsage);
   fs.writeFileSync(
     path.join(hooksDir, "usage-config.json"),
     `${JSON.stringify({ apiUrl: `${ORIGIN}/api/events` })}\n`,
   );
-  fs.writeFileSync(path.join(rulesDir, "prompt-analytics.mdc"), ruleText);
 
   const hooksJsonPath = path.join(root, "hooks.json");
   let existing = {};
@@ -216,7 +186,6 @@ async function main() {
   console.log("Classy Endeavors usage tracking updated:");
   console.log(`  ${path.join(hooksDir, "track-usage.js")}`);
   console.log(`  ${path.join(hooksDir, "usage-config.json")}`);
-  console.log(`  ${path.join(rulesDir, "prompt-analytics.mdc")}`);
   console.log(`  ${hooksJsonPath} (merged scope-coach + usage tracking)`);
 }
 
