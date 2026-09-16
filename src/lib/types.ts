@@ -89,3 +89,9 @@ export type ThreadGroup = {
   latest_at: string;
   prompts: UsageEvent[];
 };
+
+export type DailyPoint = {
+  date: string;
+  tokens: number;
+  events: number;
+};

@@ -8,6 +8,7 @@ import {
   roundAvg,
 } from "@/lib/prompt-analytics";
 import type {
+  DailyPoint,
   ProjectStat,
   ThreadGroup,
   ThreadStat,
@@ -401,6 +402,83 @@ export async function userStats(range?: DateRange): Promise<UserStat[]> {
     avg_vagueness: roundAvg(row.avg_vagueness),
     intent_counts: countIntents(row.intents || []),
   }));
+}
+
+function utcDay(value: Date) {
+  return new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate()));
+}
+
+function fillDailyPoints(
+  rows: Array<{ date: string; tokens: number; events: number }>,
+  range?: DateRange,
+): DailyPoint[] {
+  const byDate = new Map(rows.map((row) => [row.date, row]));
+  const to = utcDay(range?.to || new Date());
+  const from = range?.from
+    ? utcDay(range.from)
+    : rows[0]
+      ? new Date(`${rows[0].date}T00:00:00.000Z`)
+      : to;
+
+  const points: DailyPoint[] = [];
+  const cursor = new Date(from);
+  while (cursor.getTime() <= to.getTime()) {
+    const date = cursor.toISOString().slice(0, 10);
+    const hit = byDate.get(date);
+    points.push({
+      date,
+      tokens: Number(hit?.tokens || 0),
+      events: Number(hit?.events || 0),
+    });
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return points;
+}
+
+function trendMatch(range?: DateRange, filter?: { project?: string; user?: string }) {
+  const clauses: Record<string, unknown>[] = [];
+  const saved = savedAtFilter(range);
+  if (Object.keys(saved).length) clauses.push(saved);
+
+  const project = filter?.project?.trim();
+  if (project) {
+    clauses.push({
+      $or: [{ project_name: project }, { git_project_name: project }],
+    });
+  }
+
+  const user = filter?.user?.trim();
+  if (user) {
+    clauses.push({ $expr: { $eq: [userEmailExpr, user] } });
+  }
+
+  if (clauses.length === 0) return {};
+  if (clauses.length === 1) return clauses[0];
+  return { $and: clauses };
+}
+
+export async function dailyTrend(
+  range?: DateRange,
+  filter?: { project?: string; user?: string },
+): Promise<DailyPoint[]> {
+  await dbConnect();
+  const match = trendMatch(range, filter);
+  const rows = await UsageEvent.aggregate<DailyPoint>([
+    ...(Object.keys(match).length ? [{ $match: match }] : []),
+    {
+      $group: {
+        _id: {
+          $dateToString: { format: "%Y-%m-%d", date: "$saved_at" },
+        },
+        tokens: { $sum: TOKEN_ADD },
+        events: { $sum: 1 },
+      },
+    },
+    { $project: { _id: 0, date: "$_id", tokens: 1, events: 1 } },
+    { $sort: { date: 1 } },
+  ]);
+
+  return fillDailyPoints(rows, range);
 }
 
 export async function projectDetail(

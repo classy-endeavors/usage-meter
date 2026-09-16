@@ -13,7 +13,14 @@ import {
   groupThreadsByUser,
   GroupedAccordion,
 } from "@/components/thread-accordion";
-import type { ProjectStat, ThreadGroup, ThreadStat, UserStat } from "@/lib/types";
+import { UsageTrendCard } from "@/components/usage-trend";
+import type {
+  DailyPoint,
+  ProjectStat,
+  ThreadGroup,
+  ThreadStat,
+  UserStat,
+} from "@/lib/types";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 type Tab = "threads" | "projects" | "users" | "setup";
@@ -76,6 +83,10 @@ export function Dashboard() {
   const [range, setRange] = useState<RangePreset>("30d");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+  const [trendProject, setTrendProject] = useState("");
+  const [trendUser, setTrendUser] = useState("");
+  const [trend, setTrend] = useState<DailyPoint[]>([]);
+  const [trendLoading, setTrendLoading] = useState(true);
 
   const query = useMemo(() => rangeParams(range, from, to), [range, from, to]);
 
@@ -101,9 +112,36 @@ export function Dashboard() {
     }
   }, [query]);
 
+  const loadTrend = useCallback(async () => {
+    setTrendLoading(true);
+    try {
+      const params = new URLSearchParams(query);
+      if (trendProject) params.set("project", trendProject);
+      if (trendUser) params.set("user", trendUser);
+      const response = await fetch(`/api/trend?${params.toString()}`, {
+        credentials: "include",
+      });
+      if (response.status === 401) {
+        window.location.href = "/unlock";
+        return;
+      }
+      const data = await response.json();
+      setTrend(Array.isArray(data.points) ? data.points : []);
+    } catch {
+      setTrend([]);
+    } finally {
+      setTrendLoading(false);
+    }
+  }, [query, trendProject, trendUser]);
+
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (tab === "setup") return;
+    void loadTrend();
+  }, [loadTrend, tab]);
 
   async function openProject(name: string) {
     setProjectName(name);
@@ -165,7 +203,10 @@ export function Dashboard() {
         right={
           <button
             type="button"
-            onClick={() => void load()}
+            onClick={() => {
+              void load();
+              if (tab !== "setup") void loadTrend();
+            }}
             disabled={loading}
             className="inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium hover:text-teal-600 disabled:opacity-60"
           >
@@ -261,6 +302,21 @@ export function Dashboard() {
             />
           ) : null}
         </div>
+
+        {tab !== "setup" ? (
+          <div className="mt-8">
+            <UsageTrendCard
+              points={trend}
+              loading={trendLoading}
+              projects={stats?.projects || []}
+              users={stats?.users || []}
+              project={trendProject}
+              user={trendUser}
+              onProject={setTrendProject}
+              onUser={setTrendUser}
+            />
+          </div>
+        ) : null}
 
         <section className="mt-8">
           {tab === "threads" ? (
